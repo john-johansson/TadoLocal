@@ -158,6 +158,7 @@ class TadoLocalAPI:
             raise HTTPException(status_code=503, detail="Bridge not connected")
 
         try:
+            self.proprietary_chars = {}
             raw_accessories = await self.pairing.list_accessories_and_characteristics()
             self.accessories_dict = self._process_raw_accessories(raw_accessories)
             for a in raw_accessories:
@@ -188,7 +189,6 @@ class TadoLocalAPI:
 
     def _process_raw_accessories(self, raw_accessories):
         accessories = {}
-        self.proprietary_chars = {}  # aid -> [(iid, char_uuid, service_name)]
 
         for a in raw_accessories:
             aid = a.get('aid')
