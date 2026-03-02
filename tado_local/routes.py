@@ -1835,7 +1835,7 @@ def register_routes(app: FastAPI, get_tado_api):
         if not cloud or not cloud.is_authenticated():
             raise HTTPException(status_code=503, detail="Cloud API not authenticated")
 
-        active_tt = await cloud._fetch_cached(
+        active_tt = await cloud._fetch_with_cache(
             f"zones/{zone_id}/schedule/activeTimetable",
             cache_lifetime_hours=0.1,
             force_refresh=True,
@@ -1845,7 +1845,7 @@ def register_routes(app: FastAPI, get_tado_api):
 
         tt_id = active_tt.get("id", 0)
 
-        blocks = await cloud._fetch_cached(
+        blocks = await cloud._fetch_with_cache(
             f"zones/{zone_id}/schedule/timetables/{tt_id}/blocks",
             cache_lifetime_hours=0.1,
             force_refresh=True,
@@ -1881,7 +1881,7 @@ def register_routes(app: FastAPI, get_tado_api):
         results = {}
         for zid in sorted(zone_ids):
             try:
-                active_tt = await cloud._fetch_cached(
+                active_tt = await cloud._fetch_with_cache(
                     f"zones/{zid}/schedule/activeTimetable",
                     cache_lifetime_hours=0.1,
                     force_refresh=True,
@@ -1889,7 +1889,7 @@ def register_routes(app: FastAPI, get_tado_api):
                 if active_tt is None:
                     continue
                 tt_id = active_tt.get("id", 0)
-                blocks = await cloud._fetch_cached(
+                blocks = await cloud._fetch_with_cache(
                     f"zones/{zid}/schedule/timetables/{tt_id}/blocks",
                     cache_lifetime_hours=0.1,
                     force_refresh=True,
