@@ -1794,4 +1794,66 @@ def register_routes(app: FastAPI, get_tado_api):
             logger.error(f"Error refreshing cloud data: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to refresh cloud data: {str(e)}")
 
+    # ========================================================================
+    # Proprietary characteristic probe endpoints (reverse engineering)
+    # ========================================================================
+
+    @app.get("/probe/proprietary", tags=["Probe"])
+    async def get_proprietary_map(api_key: Optional[str] = Depends(get_api_key)):
+        """
+        List all discovered proprietary (vendor-specific) characteristics.
+
+        Shows which accessories have Tado's hidden write-only characteristics
+        and their HomeKit aid/iid addresses for use with the POST probe endpoint.
+        """
+        tado_api = get_tado_api()
+        if not tado_api:
+            raise HTTPException(status_code=503, detail="API not initialized")
+
+        prop_map = tado_api.get_proprietary_map()
+        return {
+            'proprietary_characteristics': prop_map,
+            'count': sum(len(v['characteristics']) for v in prop_map.values()),
+            'usage': 'POST /probe/proprietary with {"aid": <aid>, "payload": "<string>"} to write',
+        }
+
+    @app.post("/probe/proprietary", tags=["Probe"])
+    async def probe_proprietary(
+        aid: int,
+        payload: str,
+        api_key: Optional[str] = Depends(get_api_key)
+    ):
+        """
+        Write a string to a device's proprietary characteristic (reverse engineering).
+
+        This writes to Tado's hidden, write-only vendor characteristics to
+        discover what commands they accept.
+
+        Args:
+            aid: HomeKit accessory ID (from GET /probe/proprietary)
+            payload: String to write (e.g. '{}', 'RESUME_SCHEDULE', etc.)
+
+        Returns:
+            Result for each proprietary characteristic on the device,
+            indicating whether the write was accepted or rejected.
+
+        Warning: Use with caution. Writing unknown values may affect device behavior.
+        """
+        tado_api = get_tado_api()
+        if not tado_api:
+            raise HTTPException(status_code=503, detail="API not initialized")
+
+        if not tado_api.pairing:
+            raise HTTPException(status_code=503, detail="Bridge not connected")
+
+        try:
+            result = await tado_api.probe_proprietary(aid, payload)
+            result['timestamp'] = time.time()
+            return result
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Probe error: {e}")
+            raise HTTPException(status_code=500, detail=f"Probe failed: {str(e)}")
+
     return app

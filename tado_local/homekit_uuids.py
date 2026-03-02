@@ -274,10 +274,18 @@ HOMEKIT_VALUES = {
 # Tado Custom Service and Characteristic UUIDs
 TADO_SERVICES = {
     "E44673A0-247B-4360-8A76-DB9DA69C0100": "TadoProprietaryService",
+    "96233D3D-28DD-41AF-A96A-9680F7D3E0C0": "TadoBridgeService",
 }
 
 TADO_CHARACTERISTICS = {
     "E44673A0-247B-4360-8A76-DB9DA69C0101": "TadoProprietaryControl",
+    "96233D3D-28DD-41AF-A96A-9680F7D3E0C1": "TadoBridgeControl",
+}
+
+# All known proprietary characteristic UUIDs (for probe/discovery)
+TADO_PROPRIETARY_CHAR_UUIDS = {
+    "E44673A0-247B-4360-8A76-DB9DA69C0101",
+    "96233D3D-28DD-41AF-A96A-9680F7D3E0C1",
 }
 
 

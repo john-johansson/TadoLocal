@@ -27,7 +27,7 @@ from fastapi import HTTPException
 from aiohomekit.controller.ip.pairing import IpPairing
 
 from .state import DeviceStateManager
-from .homekit_uuids import get_characteristic_name
+from .homekit_uuids import get_characteristic_name, get_service_name, TADO_PROPRIETARY_CHAR_UUIDS
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -188,6 +188,7 @@ class TadoLocalAPI:
 
     def _process_raw_accessories(self, raw_accessories):
         accessories = {}
+        self.proprietary_chars = {}  # aid -> [(iid, char_uuid, service_name)]
 
         for a in raw_accessories:
             aid = a.get('aid')
@@ -215,10 +216,25 @@ class TadoLocalAPI:
                 # Map characteristics to device_id for efficient lookup
                 char_list = []
                 for service in a.get('services', []):
+                    service_type = service.get('type', '')
+                    service_name = get_service_name(service_type)
+
                     for char in service.get('characteristics', []):
                         char_type = char.get('type', '').lower()
                         iid = char.get('iid')
-                        # Only track characteristics we care about
+
+                        # Index proprietary characteristics for probing
+                        if char_type.upper() in TADO_PROPRIETARY_CHAR_UUIDS:
+                            if aid not in self.proprietary_chars:
+                                self.proprietary_chars[aid] = []
+                            self.proprietary_chars[aid].append((iid, char_type.upper(), service_name))
+                            logger.info(
+                                f"[Proprietary] aid={aid} ({serial_number}) "
+                                f"service={service_name} iid={iid} "
+                                f"format={char.get('format')} perms={char.get('perms')}"
+                            )
+
+                        # Only track standard characteristics we care about
                         if char_type in [
                             DeviceStateManager.CHAR_CURRENT_TEMPERATURE,
                             DeviceStateManager.CHAR_TARGET_TEMPERATURE,
@@ -250,6 +266,10 @@ class TadoLocalAPI:
             # Keep aid lookup for event handling
             if device_id:
                 self.accessories_id[aid] = device_id
+
+        if self.proprietary_chars:
+            logger.info(f"[Proprietary] Indexed {sum(len(v) for v in self.proprietary_chars.values())} "
+                        f"proprietary characteristics across {len(self.proprietary_chars)} accessories")
 
         return accessories
 
@@ -1039,3 +1059,70 @@ class TadoLocalAPI:
         logger.debug(f"Sending to HomeKit: {characteristics_to_set}")
         await target_pairing.put_characteristics(characteristics_to_set)
         return True
+
+    async def probe_proprietary(self, aid: int, payload: str) -> Dict[str, Any]:
+        """
+        Write a string to a device's proprietary characteristic for reverse engineering.
+
+        Args:
+            aid: HomeKit accessory ID
+            payload: String to write
+
+        Returns:
+            Dict with results including any error from the bridge
+
+        Raises:
+            ValueError if device or characteristic not found
+        """
+        if not self.pairing:
+            raise ValueError("Bridge not connected")
+
+        if aid not in self.proprietary_chars:
+            raise ValueError(f"No proprietary characteristics found for aid={aid}")
+
+        results = []
+        for iid, char_uuid, service_name in self.proprietary_chars[aid]:
+            logger.info(f"[Probe] Writing to aid={aid} iid={iid} ({service_name}): {repr(payload)}")
+            try:
+                await self.pairing.put_characteristics([(aid, iid, payload)])
+                logger.info(f"[Probe] aid={aid} iid={iid}: ACCEPTED (no error)")
+                results.append({
+                    'aid': aid,
+                    'iid': iid,
+                    'service': service_name,
+                    'char_uuid': char_uuid,
+                    'payload': payload,
+                    'status': 'accepted',
+                    'error': None,
+                })
+            except Exception as e:
+                logger.info(f"[Probe] aid={aid} iid={iid}: REJECTED ({e})")
+                results.append({
+                    'aid': aid,
+                    'iid': iid,
+                    'service': service_name,
+                    'char_uuid': char_uuid,
+                    'payload': payload,
+                    'status': 'rejected',
+                    'error': str(e),
+                })
+
+        return {'aid': aid, 'results': results}
+
+    def get_proprietary_map(self) -> Dict[str, Any]:
+        """Return indexed proprietary characteristics for all accessories."""
+        result = {}
+        for aid, chars in self.proprietary_chars.items():
+            device_id = self.accessories_id.get(aid)
+            device_info = self.state_manager.get_device_info(device_id) if device_id else {}
+            result[str(aid)] = {
+                'aid': aid,
+                'device_id': device_id,
+                'serial_number': device_info.get('serial_number'),
+                'zone_name': device_info.get('zone_name'),
+                'characteristics': [
+                    {'iid': iid, 'char_uuid': cuuid, 'service': sname}
+                    for iid, cuuid, sname in chars
+                ],
+            }
+        return result
