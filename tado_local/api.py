@@ -1080,11 +1080,12 @@ class TadoLocalAPI:
         if aid not in self.proprietary_chars:
             raise ValueError(f"No proprietary characteristics found for aid={aid}")
 
+        pairing = self.aid_to_pairing.get(aid, self.pairing)
         results = []
         for iid, char_uuid, service_name in self.proprietary_chars[aid]:
             logger.info(f"[Probe] Writing to aid={aid} iid={iid} ({service_name}): {repr(payload)}")
             try:
-                await self.pairing.put_characteristics([(aid, iid, payload)])
+                await pairing.put_characteristics([(aid, iid, payload)])
                 logger.info(f"[Probe] aid={aid} iid={iid}: ACCEPTED (no error)")
                 results.append({
                     'aid': aid,
