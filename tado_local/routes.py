@@ -1817,6 +1817,99 @@ def register_routes(app: FastAPI, get_tado_api):
             'usage': 'POST /probe/proprietary with {"aid": <aid>, "payload": "<string>"} to write',
         }
 
+    @app.get("/probe/schedule/{zone_id}", tags=["Probe"])
+    async def get_zone_schedule(
+        zone_id: int,
+        api_key: Optional[str] = Depends(get_api_key)
+    ):
+        """
+        Fetch the current heating schedule for a zone from Tado Cloud API.
+
+        Returns the active timetable type and all schedule blocks.
+        """
+        tado_api = get_tado_api()
+        if not tado_api:
+            raise HTTPException(status_code=503, detail="API not initialized")
+
+        cloud = getattr(tado_api, 'cloud_api', None)
+        if not cloud or not cloud.is_authenticated():
+            raise HTTPException(status_code=503, detail="Cloud API not authenticated")
+
+        active_tt = await cloud._fetch_cached(
+            f"zones/{zone_id}/schedule/activeTimetable",
+            cache_lifetime_hours=0.1,
+            force_refresh=True,
+        )
+        if active_tt is None:
+            raise HTTPException(status_code=502, detail="Failed to fetch active timetable")
+
+        tt_id = active_tt.get("id", 0)
+
+        blocks = await cloud._fetch_cached(
+            f"zones/{zone_id}/schedule/timetables/{tt_id}/blocks",
+            cache_lifetime_hours=0.1,
+            force_refresh=True,
+        )
+        if blocks is None:
+            raise HTTPException(status_code=502, detail="Failed to fetch schedule blocks")
+
+        return {
+            "zone_id": zone_id,
+            "timetable": active_tt,
+            "blocks": blocks,
+        }
+
+    @app.get("/probe/schedules", tags=["Probe"])
+    async def get_all_schedules(
+        api_key: Optional[str] = Depends(get_api_key)
+    ):
+        """Fetch schedules for all known zones from Tado Cloud API."""
+        tado_api = get_tado_api()
+        if not tado_api:
+            raise HTTPException(status_code=503, detail="API not initialized")
+
+        cloud = getattr(tado_api, 'cloud_api', None)
+        if not cloud or not cloud.is_authenticated():
+            raise HTTPException(status_code=503, detail="Cloud API not authenticated")
+
+        zone_ids = set()
+        for device in tado_api.state_manager.get_all_devices():
+            zid = device.get('zone_id')
+            if zid:
+                zone_ids.add(zid)
+
+        results = {}
+        for zid in sorted(zone_ids):
+            try:
+                active_tt = await cloud._fetch_cached(
+                    f"zones/{zid}/schedule/activeTimetable",
+                    cache_lifetime_hours=0.1,
+                    force_refresh=True,
+                )
+                if active_tt is None:
+                    continue
+                tt_id = active_tt.get("id", 0)
+                blocks = await cloud._fetch_cached(
+                    f"zones/{zid}/schedule/timetables/{tt_id}/blocks",
+                    cache_lifetime_hours=0.1,
+                    force_refresh=True,
+                )
+                zone_name = None
+                for d in tado_api.state_manager.get_all_devices():
+                    if d.get('zone_id') == zid:
+                        zone_name = d.get('zone_name')
+                        break
+                results[str(zid)] = {
+                    "zone_id": zid,
+                    "zone_name": zone_name,
+                    "timetable": active_tt,
+                    "blocks": blocks,
+                }
+            except Exception as e:
+                logger.error(f"Failed to fetch schedule for zone {zid}: {e}")
+
+        return {"schedules": results, "count": len(results)}
+
     @app.post("/probe/proprietary", tags=["Probe"])
     async def probe_proprietary(
         aid: int,
