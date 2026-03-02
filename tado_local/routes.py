@@ -1910,6 +1910,32 @@ def register_routes(app: FastAPI, get_tado_api):
 
         return {"schedules": results, "count": len(results)}
 
+    @app.post("/probe/request-response", tags=["Probe"])
+    async def probe_request_response(
+        aid: int,
+        write_iid: int,
+        read_iid: int,
+        payload: str,
+        api_key: Optional[str] = Depends(get_api_key)
+    ):
+        """
+        Write to one characteristic and immediately read another.
+
+        For testing request-response patterns on proprietary characteristics.
+        Reads are attempted at 0s, 0.2s, 0.5s, 1.0s after write, stopping
+        when a non-None value is received.
+        """
+        tado_api = get_tado_api()
+        if not tado_api:
+            raise HTTPException(status_code=503, detail="API not initialized")
+        try:
+            result = await tado_api.probe_request_response(aid, write_iid, read_iid, payload)
+            result['timestamp'] = time.time()
+            return result
+        except Exception as e:
+            logger.error(f"Probe RR error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     @app.post("/probe/proprietary", tags=["Probe"])
     async def probe_proprietary(
         aid: int,

@@ -1110,6 +1110,43 @@ class TadoLocalAPI:
 
         return {'aid': aid, 'results': results}
 
+    async def probe_request_response(self, aid: int, write_iid: int, read_iid: int, payload: str) -> Dict[str, Any]:
+        """Write to one characteristic and immediately read another (request-response pattern)."""
+        pairing = self.aid_to_pairing.get(aid, self.pairing)
+
+        write_result = None
+        try:
+            await pairing.put_characteristics([(aid, write_iid, payload)])
+            write_result = 'accepted'
+            logger.info(f"[Probe RR] Write aid={aid} iid={write_iid}: ACCEPTED")
+        except Exception as e:
+            write_result = f'rejected: {e}'
+            logger.info(f"[Probe RR] Write aid={aid} iid={write_iid}: REJECTED ({e})")
+
+        read_results = []
+        for delay in [0.0, 0.2, 0.5, 1.0]:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            try:
+                result = await pairing.get_characteristics([(aid, read_iid)])
+                val = result.get((aid, read_iid), {}).get('value')
+                read_results.append({'delay_s': delay, 'value': val})
+                logger.info(f"[Probe RR] Read aid={aid} iid={read_iid} @{delay}s: {repr(val)}")
+                if val is not None:
+                    break
+            except Exception as e:
+                read_results.append({'delay_s': delay, 'error': str(e)})
+                logger.info(f"[Probe RR] Read aid={aid} iid={read_iid} @{delay}s: ERROR {e}")
+
+        return {
+            'aid': aid,
+            'write_iid': write_iid,
+            'read_iid': read_iid,
+            'payload': payload,
+            'write_status': write_result,
+            'read_attempts': read_results,
+        }
+
     def get_proprietary_map(self) -> Dict[str, Any]:
         """Return indexed proprietary characteristics for all accessories."""
         result = {}
