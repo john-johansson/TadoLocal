@@ -48,7 +48,7 @@ Find your bridge information:
 
 Start the server:
 ```bash
-tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+tado-local --bridge 192.168.1.100:123-45-678
 ```
 
 **Step 3: Complete Cloud Authentication**
@@ -324,7 +324,7 @@ tado-local --help
 
 2. **Start with your bridge credentials**:
    ```bash
-   tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+   tado-local --bridge 192.168.1.100:123-45-678
    ```
 
 3. **Complete cloud authentication** in your browser (for device metadata)
@@ -341,13 +341,30 @@ tado-local --help
 
 Options:
   --state PATH          Path to state database (default: ~/.tado-local.db)
-  --bridge-ip IP        IP address of the Tado bridge
-  --pin XXX-XX-XXX      HomeKit PIN for initial pairing
+  --bridge IP[:PIN]     Bridge in ip:pin format, repeatable for multiple bridges
+  --accessory IP[:PIN]  Standalone HomeKit accessory in ip:pin format, repeatable
   --port PORT           API server port (default: 4407)
   --clear-pairings      Clear all existing pairings before starting
+
+Legacy options (still supported):
+  --bridge-ip IP        IP address of the Tado bridge
+  --pin XXX-XX-XXX      HomeKit PIN for initial pairing
   --accessory-ip IP     IP of a standalone HomeKit accessory (repeatable)
   --accessory-pin PIN   HomeKit PIN for a standalone accessory (repeatable)
 ```
+
+#### Multiple Bridges
+
+If you have more than one Tado bridge, pass `--bridge` once per bridge:
+
+```bash
+tado-local --bridge 192.168.1.100:111-11-111 --bridge 192.168.1.101:222-22-222
+
+# Or omit the PIN if already paired:
+tado-local --bridge 192.168.1.100 --bridge 192.168.1.101
+```
+
+All zones from every bridge are merged into the same API.
 
 #### Standalone Accessories
 
@@ -355,10 +372,11 @@ Some Tado products (e.g. Smart AC Control V3+) are standalone HomeKit accessorie
 that pair independently from the bridge. You can include them alongside the bridge:
 
 ```bash
-tado-local --bridge-ip 192.168.1.100 --accessory-ip 192.168.1.101 --accessory-pin 987-65-432
+tado-local --bridge 192.168.1.100 --accessory 192.168.1.101:987-65-432
 ```
 
-Multiple accessories can be added by repeating the flags. Their zones will appear
+Multiple accessories can be added by repeating the flag. Their zones will appear
+in the same API alongside the bridge zones.
 in the same API alongside the bridge zones.
 
 ### Optional Authentication
@@ -612,7 +630,7 @@ tado-local --help
 
 2. **Start with your bridge credentials**:
    ```bash
-   tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+   tado-local --bridge 192.168.1.100:123-45-678
    ```
 
 3. **Complete cloud authentication** in your browser (for device metadata)
@@ -624,17 +642,19 @@ tado-local --help
 
 ### Configuration Options
 
-### Configuration Options
-
 ```bash
 tado-local --help
 
 Options:
   --state PATH          Path to state database (default: ~/.tado-local.db)
-  --bridge-ip IP        IP address of the Tado bridge
-  --pin XXX-XX-XXX      HomeKit PIN for initial pairing
+  --bridge IP[:PIN]     Bridge in ip:pin format, repeatable for multiple bridges
+  --accessory IP[:PIN]  Standalone HomeKit accessory in ip:pin format, repeatable
   --port PORT           API server port (default: 4407)
   --clear-pairings      Clear all existing pairings before starting
+
+Legacy options (still supported):
+  --bridge-ip IP        IP address of the Tado bridge
+  --pin XXX-XX-XXX      HomeKit PIN for initial pairing
   --accessory-ip IP     IP of a standalone HomeKit accessory (repeatable)
   --accessory-pin PIN   HomeKit PIN for a standalone accessory (repeatable)
 ```
@@ -811,7 +831,7 @@ The proxy automatically reconnects and ignores temporary `None` values. Wait a f
 rm ~/.tado-local.db
 
 # Run initial setup again
-tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+tado-local --bridge 192.168.1.100:123-45-678
 ```
 
 ---
@@ -844,7 +864,7 @@ tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
 **Backend improvements needed**:
 
 - [ ] **Test coverage** - Unit and integration tests
-- [ ] **Multi-bridge support** - Handle multiple Tado systems
+- [x] **Multi-bridge support** - Multiple bridges via `--bridge ip:pin` (repeatable)
 - [ ] **API versioning** - Ensure backward compatibility
 - [ ] **WebSocket support** - Alternative to SSE for some integrations
 - [ ] **Documentation improvements** - More API examples, tutorials
@@ -864,7 +884,7 @@ cd TadoLocal
 pip install -e .[dev]
 
 # Run with live reloading
-python -m tado_local --bridge-ip 192.168.1.100
+python -m tado_local --bridge 192.168.1.100
 
 # Run tests (when available)
 pytest
@@ -1028,7 +1048,7 @@ All dependencies use permissive open source licenses compatible with Apache 2.0:
 🔧 **Backend Improvements**:
 - Comprehensive test coverage (now 60% code coverage)
 - API versioning for stability
-- Multi-bridge support
+- ~~Multi-bridge support~~ ✅ Done — multiple bridges via `--bridge ip:pin`
 - WebSocket alternative to SSE
 - Enhanced CI/CD across platforms
 

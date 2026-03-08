@@ -83,30 +83,45 @@ persisted in the `/data` volume so it survives container restarts.
 docker run -d --name tado-local \
   -p 4407:4407 \
   -v tado-data:/data \
-  -e TADO_BRIDGE_IP=192.168.1.100 \
-  -e TADO_BRIDGE_PIN=123-45-678 \
+  -e TADO_BRIDGE=192.168.1.100:123-45-678 \
   tado-local
 ```
 
 #### Subsequent runs
 
-Once paired, `TADO_BRIDGE_PIN` can be omitted:
+Once paired, the PIN can be omitted:
 
 ```bash
 docker run -d --name tado-local \
   -p 4407:4407 \
   -v tado-data:/data \
-  -e TADO_BRIDGE_IP=192.168.1.100 \
+  -e TADO_BRIDGE=192.168.1.100 \
+  tado-local
+```
+
+#### Multiple bridges
+
+Pass multiple `ip[:pin]` entries as a comma-separated list:
+
+```bash
+docker run -d --name tado-local \
+  -p 4407:4407 \
+  -v tado-data:/data \
+  -e TADO_BRIDGE=192.168.1.100:111-11-111,192.168.1.101:222-22-222 \
   tado-local
 ```
 
 #### Environment variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `TADO_BRIDGE_IP` | Yes (first run) | IP address of your Tado bridge |
-| `TADO_BRIDGE_PIN` | First pairing only | HomeKit PIN printed on the bridge |
-| `TADO_PORT` | No (default `4407`) | Port the API listens on inside the container |
+| Variable             | Required            | Description                                                   |
+| -------------------- | ------------------- | ------------------------------------------------------------- |
+| `TADO_BRIDGE`        | Yes (first run)     | Bridge(s) as `ip[:pin]`, comma-separated for multiple         |
+| `TADO_ACCESSORY`     | No                  | Standalone accessory/ies as `ip[:pin]`, comma-separated       |
+| `TADO_PORT`          | No (default `4407`) | Port the API listens on                                       |
+| `TADO_BRIDGE_IP`     | Legacy              | Single bridge IP (use `TADO_BRIDGE` instead)                  |
+| `TADO_BRIDGE_PIN`    | Legacy              | Single bridge PIN (use `TADO_BRIDGE` instead)                 |
+| `TADO_ACCESSORY_IP`  | Legacy              | Comma-separated accessory IPs (use `TADO_ACCESSORY` instead)  |
+| `TADO_ACCESSORY_PIN` | Legacy              | Comma-separated accessory PINs (use `TADO_ACCESSORY` instead) |
 
 > **Tip:** Replace `docker` with `podman` in all commands above if using Podman.
 > The image is multi-arch and works on both AMD64 and ARM64.
@@ -119,7 +134,7 @@ After installation, you can run the proxy in multiple ways:
 
 ```bash
 # Using python -m (works without pip install in dev mode)
-python -m tado_local --bridge-ip 192.168.1.100 --pin 123-45-678
+python -m tado_local --bridge 192.168.1.100:123-45-678
 
 # View help
 python -m tado_local --help
@@ -129,7 +144,7 @@ python -m tado_local --help
 
 ```bash
 # After pip install, use the console script
-tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+tado-local --bridge 192.168.1.100:123-45-678
 
 # View help
 tado-local --help
@@ -139,7 +154,7 @@ tado-local --help
 
 ```bash
 # Direct execution (for existing deployments)
-python local.py --bridge-ip 192.168.1.100 --pin 123-45-678
+python local.py --bridge 192.168.1.100:123-45-678
 ```
 
 All methods work identically!
@@ -246,13 +261,13 @@ python -m tado_local --help
 tado-local --help
 
 # Start the proxy (requires Tado bridge)
-python -m tado_local --bridge-ip YOUR_BRIDGE_IP --pin YOUR_PIN
+python -m tado_local --bridge YOUR_BRIDGE_IP:YOUR_PIN
 
 # Or use the console script
-tado-local --bridge-ip YOUR_BRIDGE_IP
+tado-local --bridge YOUR_BRIDGE_IP
 
 # Or use backward compatibility
-python local.py --bridge-ip YOUR_BRIDGE_IP
+python local.py --bridge YOUR_BRIDGE_IP
 ```
 
 ## Support
