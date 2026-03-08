@@ -293,12 +293,13 @@ class TadoCloudSync:
 
     def sync_zone_states_data(self, zone_states_data: List[Dict[str, Any]], home_id: int, tado_api: TadoLocalAPI) -> bool:
         """
-        Sync zone states from Tado Cloud API to update temperature and humidity.
+        Sync zone states from Tado Cloud API to update humidity.
 
-        The zoneStates endpoint provides authoritative sensor data that supplements
-        HomeKit readings.  Standalone accessories (e.g. Smart AC Control V3+) may
-        not fire HomeKit temperature events reliably, so cloud values act as a
-        correction layer.
+        Tado devices only fire HomeKit humidity events when the delta exceeds
+        ~5%, so cloud values fill the gap between those infrequent updates.
+        Temperature is intentionally excluded here -- always-on HomeKit polling
+        (every 60-120s) provides timely local reads without the precision
+        mismatch that cloud values would introduce.
 
         Args:
             zone_states_data: Zone state response from Tado Cloud API
@@ -313,7 +314,7 @@ class TadoCloudSync:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            sensor_updates = 0
+            humidity_updates = 0
 
             zones = zone_states_data.get('zoneStates', {})
             for zone_id, zone_state in zones.items():
@@ -324,12 +325,11 @@ class TadoCloudSync:
 
                 sensor_data = zone_state.get('sensorDataPoints', {})
                 humidity = sensor_data.get('humidity', {}).get('percentage')
-                temperature = sensor_data.get('insideTemperature', {}).get('celsius')
 
-                if humidity is None and temperature is None:
+                if humidity is None:
                     continue
 
-                logger.debug(f"Cloud sensor data for zone {zone_id}: temp={temperature}, hum={humidity}")
+                logger.debug(f"Cloud humidity for zone {zone_id}: {humidity}%")
                 cursor.execute("SELECT aid FROM devices WHERE tado_zone_id = ?", (str(zone_id),))
 
                 for device in cursor.fetchall():
@@ -337,22 +337,15 @@ class TadoCloudSync:
                     if not aid:
                         continue
 
-                    if humidity is not None:
-                        iid = tado_api.get_iid_from_characteristics(aid, "CurrentRelativeHumidity")
-                        if iid:
-                            asyncio.create_task(tado_api.handle_change(aid, iid, {'value': humidity}, source="POLLING"))
-                            sensor_updates += 1
-
-                    if temperature is not None:
-                        iid = tado_api.get_iid_from_characteristics(aid, "CurrentTemperature")
-                        if iid:
-                            asyncio.create_task(tado_api.handle_change(aid, iid, {'value': temperature}, source="POLLING"))
-                            sensor_updates += 1
+                    iid = tado_api.get_iid_from_characteristics(aid, "CurrentRelativeHumidity")
+                    if iid:
+                        asyncio.create_task(tado_api.handle_change(aid, iid, {'value': humidity}, source="POLLING"))
+                        humidity_updates += 1
 
             conn.commit()
             conn.close()
 
-            logger.info(f"Cloud zone states: {sensor_updates} sensor updates applied")
+            logger.info(f"Cloud zone states: {humidity_updates} humidity updates applied")
             return True
 
         except Exception as e:

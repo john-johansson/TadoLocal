@@ -209,7 +209,8 @@ class TestSyncZoneStatesData:
         tado_api.get_iid_from_characteristics.assert_any_call(11, "CurrentRelativeHumidity")
         assert create_task.call_count >= 1
 
-    def test_sync_zone_states_data_creates_temperature_tasks(self, syncer):
+    def test_sync_zone_states_data_ignores_temperature_only(self, syncer):
+        """Temperature-only zones should be skipped -- temp is handled by HomeKit polling."""
         conn = sqlite3.connect(syncer.db_path)
         conn.execute("INSERT INTO devices (serial_number, aid, tado_zone_id, name)" "VALUES ('SU001', 22, '5', 'ac_ctrl')")
         conn.commit()
@@ -227,15 +228,14 @@ class TestSyncZoneStatesData:
         }
 
         tado_api = MagicMock()
-        tado_api.get_iid_from_characteristics.return_value = 300
 
         with patch("tado_local.sync.asyncio.create_task") as create_task:
             assert syncer.sync_zone_states_data(zone_states_data, home_id=1, tado_api=tado_api) is True
 
-        tado_api.get_iid_from_characteristics.assert_any_call(22, "CurrentTemperature")
-        create_task.assert_called_once()
+        create_task.assert_not_called()
 
-    def test_sync_zone_states_data_syncs_both_temp_and_humidity(self, syncer):
+    def test_sync_zone_states_data_syncs_only_humidity_when_both_present(self, syncer):
+        """When both temp and humidity are present, only humidity should be synced."""
         conn = sqlite3.connect(syncer.db_path)
         conn.execute("INSERT INTO devices (serial_number, aid, tado_zone_id, name)" "VALUES ('RU002', 33, '7', 'thermostat')")
         conn.commit()
@@ -259,11 +259,8 @@ class TestSyncZoneStatesData:
         with patch("tado_local.sync.asyncio.create_task") as create_task:
             assert syncer.sync_zone_states_data(zone_states_data, home_id=1, tado_api=tado_api) is True
 
-        calls = tado_api.get_iid_from_characteristics.call_args_list
-        char_names = [c[0][1] for c in calls]
-        assert "CurrentRelativeHumidity" in char_names
-        assert "CurrentTemperature" in char_names
-        assert create_task.call_count == 2
+        tado_api.get_iid_from_characteristics.assert_called_once_with(33, "CurrentRelativeHumidity")
+        create_task.assert_called_once()
 
     def test_sync_zone_states_data_skips_when_no_sensor_data(self, syncer):
         zone_states_data = {
