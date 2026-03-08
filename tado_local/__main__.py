@@ -38,6 +38,15 @@ from .zeroconf_register import get_primary_ipv4
 # Logger will be configured in main() based on daemon/console mode
 logger = logging.getLogger(__name__)
 
+
+def _parse_ip_pin_args(entries: list[str]) -> list[tuple[str, str | None]]:
+    """Parse a list of 'ip[:pin]' strings into (ip, pin) tuples."""
+    result = []
+    for entry in entries:
+        parts = entry.split(':', 1)
+        result.append((parts[0], parts[1] if len(parts) > 1 else None))
+    return result
+
 # Global variables
 bridge_pairing: Optional[IpPairing] = None
 tado_api: Optional[TadoLocalAPI] = None
@@ -123,26 +132,45 @@ async def run_server(args):
         app = create_app()
         register_routes(app, lambda: tado_api)
 
-        # Set up pairing
-        bridge_pairing, bridge_ip = await TadoBridge.pair_or_load(
-            args.bridge_ip, args.pin, db_path, args.clear_pairings
-        )
+        # Build bridge list from --bridge ip[:pin] args (new combined format)
+        bridges = _parse_ip_pin_args(args.bridge)
+
+        # Backwards compat: fall back to --bridge-ip / --pin if no --bridge given
+        if not bridges and args.bridge_ip:
+            bridges = [(args.bridge_ip, args.pin)]
+
+        # Auto-discovery: no bridges specified, let pair_or_load pick from DB
+        if not bridges:
+            bridges = [(None, None)]
+
+        # Pair / load all bridges; first becomes primary
+        bridge_pairings = []
+        for b_ip, b_pin in bridges:
+            pairing, resolved_ip = await TadoBridge.pair_or_load(b_ip, b_pin, db_path, args.clear_pairings)
+            bridge_pairings.append(pairing)
+            logger.info(f'Bridge {resolved_ip or b_ip}: ready')
+
+        # Build accessory list from --accessory ip[:pin] args (new combined format)
+        accessory_entries = _parse_ip_pin_args(args.accessory)
+
+        # Backwards compat: --accessory-ip / --accessory-pin positional list
+        for idx, acc_ip in enumerate(args.accessory_ip):
+            acc_pin = args.accessory_pin[idx] if idx < len(args.accessory_pin) else None
+            accessory_entries.append((acc_ip, acc_pin))
 
         # Pair / load standalone accessories (e.g. Smart AC Control V3+)
         accessory_pairings = []
-        for idx, acc_ip in enumerate(args.accessory_ip):
-            acc_pin = args.accessory_pin[idx] if idx < len(args.accessory_pin) else None
+        for acc_ip, acc_pin in accessory_entries:
             try:
-                pairing, _ = await TadoBridge.pair_or_load_accessory(
-                    acc_ip, acc_pin, db_path
-                )
+                pairing, _ = await TadoBridge.pair_or_load_accessory(acc_ip, acc_pin, db_path)
                 accessory_pairings.append(pairing)
-                logger.info(f"Standalone accessory {acc_ip}: ready")
+                logger.info(f'Standalone accessory {acc_ip}: ready')
             except Exception as e:
-                logger.error(f"Standalone accessory {acc_ip}: failed ({e})")
+                logger.error(f'Standalone accessory {acc_ip}: failed ({e})')
 
-        # Initialize the API with the bridge pairing + any standalone accessories
-        await tado_api.initialize(bridge_pairing, extra_pairings=accessory_pairings or None)
+        # Primary bridge + additional bridges + standalone accessories
+        extra_pairings = bridge_pairings[1:] + accessory_pairings
+        await tado_api.initialize(bridge_pairings[0], extra_pairings=extra_pairings or None)
 
         # Register mDNS service asynchronously (Avahi via DBus preferred, fall back to zeroconf)
         if not args.no_mdns:
@@ -197,7 +225,7 @@ async def run_server(args):
         server_ip = get_primary_ipv4() or "0.0.0.0"
 
         logger.info("*** Tado Local ready! ***")
-        logger.info(f"Bridge IP: {bridge_ip}")
+        logger.info(f"Bridges: {len(bridge_pairings)} connected")
         logger.info(f"API Server: http://{server_ip}:{args.port}")
         logger.info(f"Documentation: http://{server_ip}:{args.port}/docs")
         logger.info(f"Status: http://{server_ip}:{args.port}/status")
@@ -376,33 +404,32 @@ def main():
         epilog="""
 Examples:
   # Initial pairing (first time setup)
-  python -m tado_local --bridge-ip 192.168.1.100 --pin 123-45-678
-  tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
+  tado-local --bridge 192.168.1.100:123-45-678
 
-  # Start API server with existing pairing (console mode)
-  python -m tado_local --bridge-ip 192.168.1.100
-  tado-local --bridge-ip 192.168.1.100
+  # Multiple bridges
+  tado-local --bridge 192.168.1.100:111-11-111 --bridge 192.168.1.101:222-22-222
 
-  # Run as system daemon (structured logging for syslog)
-  tado-local --bridge-ip 192.168.1.100 --daemon --pid-file /var/run/tado-local.pid
-
-  # Send logs to local syslog
-  tado-local --bridge-ip 192.168.1.100 --syslog /dev/log
-
-  # Send logs to remote syslog server
-  tado-local --bridge-ip 192.168.1.100 --syslog logserver.local:514
-
-  # Custom port and database location
-  python -m tado_local --bridge-ip 192.168.1.100 --port 8080 --state ./my-tado.db
-
-  # Debug mode with verbose logging
-  tado-local --bridge-ip 192.168.1.100 --verbose
+  # Start API server with existing pairing (no PIN needed)
+  tado-local --bridge 192.168.1.100
 
   # Pair a standalone Smart AC Control alongside the bridge
+  tado-local --bridge 192.168.1.100 --accessory 192.168.1.101:987-65-432
+
+  # Legacy format (still supported)
+  tado-local --bridge-ip 192.168.1.100 --pin 123-45-678
   tado-local --bridge-ip 192.168.1.100 --accessory-ip 192.168.1.101 --accessory-pin 987-65-432
 
-  # Reconnect to a previously paired standalone accessory (no PIN needed)
-  tado-local --bridge-ip 192.168.1.100 --accessory-ip 192.168.1.101
+  # Run as system daemon (structured logging for syslog)
+  tado-local --bridge 192.168.1.100 --daemon --pid-file /var/run/tado-local.pid
+
+  # Send logs to local syslog
+  tado-local --bridge 192.168.1.100 --syslog /dev/log
+
+  # Custom port and database location
+  tado-local --bridge 192.168.1.100 --port 8080 --state ./my-tado.db
+
+  # Debug mode with verbose logging
+  tado-local --bridge 192.168.1.100 --verbose
 
 API Endpoints:
   GET  /               - API information
@@ -425,12 +452,16 @@ API Endpoints:
             help="Disable mDNS/Avahi/zeroconf service registration at startup"
         )
     parser.add_argument(
+            "--bridge", action="append", default=[],
+            help="Bridge in ip[:pin] format, repeatable for multiple bridges (e.g. 192.168.1.1:111-11-111). PIN is optional if already paired."
+        )
+    parser.add_argument(
             "--bridge-ip",
-            help="IP of the Tado bridge (e.g., 192.168.1.100). If not provided, will auto-discover from existing pairings."
+            help="IP of the Tado bridge (legacy; prefer --bridge). If not provided, will auto-discover from existing pairings."
         )
     parser.add_argument(
             "--pin",
-            help="HomeKit PIN for initial pairing (XXX-XX-XXX format)"
+            help="HomeKit PIN for initial bridge pairing (legacy; prefer --bridge ip:pin)"
         )
     parser.add_argument(
             "--port", type=int, default=4407,
@@ -457,12 +488,16 @@ API Endpoints:
             help="Write process ID to specified file (useful for daemon mode)"
         )
     parser.add_argument(
+            "--accessory", action="append", default=[],
+            help="Standalone HomeKit accessory in ip[:pin] format, repeatable (e.g. 192.168.1.101:987-65-432). PIN is optional if already paired."
+        )
+    parser.add_argument(
             "--accessory-ip", action="append", default=[],
-            help="IP of a standalone HomeKit accessory such as Tado Smart AC Control V3+ (repeatable)"
+            help="IP of a standalone HomeKit accessory such as Tado Smart AC Control V3+ (legacy; prefer --accessory, repeatable)"
         )
     parser.add_argument(
             "--accessory-pin", action="append", default=[],
-            help="HomeKit PIN for a standalone accessory (repeatable, order must match --accessory-ip)"
+            help="HomeKit PIN for a standalone accessory (legacy; prefer --accessory ip:pin, repeatable, order must match --accessory-ip)"
         )
     # Parse CLI arguments
     args = parser.parse_args()

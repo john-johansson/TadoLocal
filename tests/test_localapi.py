@@ -67,6 +67,48 @@ class TestTadoLocalAPI:
             assert api_instance.is_initializing is False
 
     @pytest.mark.asyncio
+    async def test_initialize_with_multiple_bridges(self, api_instance, mock_pairing):
+        """Test API initialization with a primary bridge and an extra bridge pairing."""
+        extra_bridge = AsyncMock()
+        extra_bridge.list_accessories_and_characteristics = AsyncMock(return_value=[])
+        extra_bridge.subscribe = AsyncMock()
+        extra_bridge.dispatcher_connect = Mock()
+
+        with (
+            patch.object(api_instance, 'refresh_accessories', new_callable=AsyncMock),
+            patch.object(api_instance, 'initialize_device_states', new_callable=AsyncMock),
+            patch.object(api_instance, 'setup_event_listeners', new_callable=AsyncMock),
+        ):
+            await api_instance.initialize(mock_pairing, extra_pairings=[extra_bridge])
+
+            assert api_instance.pairing is mock_pairing
+            assert extra_bridge in api_instance.extra_pairings
+            assert len(api_instance.extra_pairings) == 1
+            assert api_instance.is_initializing is False
+
+    @pytest.mark.asyncio
+    async def test_initialize_with_two_extra_bridges(self, api_instance, mock_pairing):
+        """Test API initialization with two additional bridge pairings."""
+        extra_bridge1 = AsyncMock()
+        extra_bridge1.list_accessories_and_characteristics = AsyncMock(return_value=[])
+        extra_bridge1.dispatcher_connect = Mock()
+        extra_bridge2 = AsyncMock()
+        extra_bridge2.list_accessories_and_characteristics = AsyncMock(return_value=[])
+        extra_bridge2.dispatcher_connect = Mock()
+
+        with (
+            patch.object(api_instance, 'refresh_accessories', new_callable=AsyncMock),
+            patch.object(api_instance, 'initialize_device_states', new_callable=AsyncMock),
+            patch.object(api_instance, 'setup_event_listeners', new_callable=AsyncMock),
+        ):
+            await api_instance.initialize(mock_pairing, extra_pairings=[extra_bridge1, extra_bridge2])
+
+            assert api_instance.pairing is mock_pairing
+            assert len(api_instance.extra_pairings) == 2
+            assert extra_bridge1 in api_instance.extra_pairings
+            assert extra_bridge2 in api_instance.extra_pairings
+
+    @pytest.mark.asyncio
     async def test_cleanup(self, api_instance, mock_pairing):
         """Test cleanup properly shuts down resources."""
         api_instance.pairing = mock_pairing
